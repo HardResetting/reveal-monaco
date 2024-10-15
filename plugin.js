@@ -37,7 +37,7 @@ export class MonacoPlugin {
     this.deck.on("slidechanged", (x) => this.onSlideChanged(x));
 
     // see if there is an editor on the initial slide
-    this.onSlideChanged();
+    this.deck.on("ready", _ => this.onSlideChanged());
   }
 
   loadScript(url, callback) {
