@@ -15,7 +15,7 @@ let defaultOptions = {
 export class MonacoPlugin {
   constructor(reveal) {
     this.deck = reveal;
-    this.activeEditor = null;
+    this.editors = new Map();
     let revealOptions = this.deck.getConfig().monaco || {};
     this.options = { ...defaultOptions, ...revealOptions };
     this.monacoBaseUrl = this.options.monacoBaseUrl;
@@ -37,7 +37,7 @@ export class MonacoPlugin {
     this.deck.on("slidechanged", (x) => this.onSlideChanged(x));
 
     // see if there is an editor on the initial slide
-    this.onSlideChanged();
+    this.deck.on("ready", _ => this.onSlideChanged());
   }
 
   loadScript(url, callback) {
@@ -73,49 +73,49 @@ export class MonacoPlugin {
       currentSlide: event?.currentSlide || this.deck.getCurrentSlide(),
     };
     this.log(state);
+
     if (state.previousSlide) {
-      const codeBlock = state.previousSlide.querySelector(
-        this.options.selector
-      );
-      if (codeBlock && this.activeEditor) {
-        const contents = this.activeEditor.getModel().getValue().trimStart();
+      const codeBlocks = state.previousSlide.querySelectorAll(this.options.selector);
+      codeBlocks.forEach((codeBlock, index) => {
+        const editor = this.editors.get(codeBlock);
+        if (editor) {
+          const contents = editor.getModel().getValue().trimStart();
+          editor.dispose();
+          this.editors.delete(codeBlock);
 
-        this.activeEditor.dispose();
-        this.activeEditor = null;
-
-        const noscript = document.createElement("script");
-        noscript.setAttribute("type", "text/template");
-        noscript.innerHTML = contents;
-        codeBlock.appendChild(noscript);
-      }
+          const noscript = document.createElement("script");
+          noscript.setAttribute("type", "text/template");
+          noscript.innerHTML = contents;
+          codeBlock.appendChild(noscript);
+        }
+      });
     }
+
     if (state.currentSlide) {
-      const codeBlock = state.currentSlide.querySelector(this.options.selector);
-      if (codeBlock) {
-        const scriptTemplateChild = codeBlock.querySelector(
-          "script[type='text/template']"
-        );
-        const initialCode = (
-          scriptTemplateChild
-            ? scriptTemplateChild.innerHTML
-            : codeBlock.innerHTML
-        ).trimStart();
+      const codeBlocks = state.currentSlide.querySelectorAll(this.options.selector);
+      codeBlocks.forEach((codeBlock, index) => {
+        const scriptTemplateChild = codeBlock.querySelector("script[type='text/template']");
+        const initialCode = (scriptTemplateChild ? scriptTemplateChild.innerHTML : codeBlock.innerHTML).trimStart();
         codeBlock.innerHTML = "";
-        const language =
-          codeBlock.getAttribute("language") || codeBlock.getAttribute("data-language") || this.options.defaultLanguage;
-        this.activeEditor = this.monaco.editor.create(codeBlock, {
+        const language = codeBlock.getAttribute("language") || codeBlock.getAttribute("data-language") || this.options.defaultLanguage;
+        monaco.editor.setTheme('vs-dark');
+        const editor = this.monaco.editor.create(codeBlock, {
           ...this.options.editorOptions,
           value: initialCode,
           language: language
         });
 
-        this.activeEditor.getModel().onDidChangeContent(e => {
-          const contentChangeEvent = new CustomEvent("reveal-monaco-content-change", { detail: { textContent: this.activeEditor.getModel().getValue() } });
-          window.dispatchEvent(contentChangeEvent);
+        editor.getModel().onDidChangeContent(e => {
+          const contentChangeEvent = new CustomEvent("reveal-monaco-content-change", { bubbles: true, detail: { textContent: editor.getModel().getValue() } });
+          codeBlock.dispatchEvent(contentChangeEvent);
         });
-        // dispatch event for initial display of the editor
-        window.dispatchEvent(new CustomEvent("reveal-monaco-content-change", { detail: { textContent: this.activeEditor.getModel().getValue() } }));
-      }
+
+        // Store the editor instance
+        this.editors.set(codeBlock, editor);
+
+        // Dispatch event for initial display of the editor
+        codeBlock.dispatchEvent(new CustomEvent("reveal-monaco-content-change", { bubbles: true, detail: { textContent: editor.getModel().getValue() } }));
+      });
     }
   }
 
